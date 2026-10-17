@@ -1,0 +1,427 @@
+openapi: 3.1.0
+info:
+  title: Zamzam API
+  version: 1.0.0
+  description: Versioned product, category, signed image, guest checkout, and order API.
+servers:
+  - url: https://your-deployed-api.example.com
+    description: Placeholder; append /api/v1 for versioned routes.
+tags:
+  - name: Health
+  - name: Authentication
+  - name: Products
+  - name: Categories
+  - name: Uploads
+  - name: Orders
+paths:
+  /health/live:
+    get:
+      tags: [Health]
+      responses:
+        "200":
+          description: Process is live.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Success" }
+  /health/ready:
+    get:
+      tags: [Health]
+      responses:
+        "200": { description: Firestore is reachable. }
+        "503": { $ref: "#/components/responses/Error" }
+  /api/v1/auth/sync:
+    post:
+      tags: [Authentication]
+      security: [{ FirebaseBearer: [] }]
+      summary: Create or synchronize the authenticated customer's profile.
+      responses:
+        "200": { description: Existing profile synchronized. }
+        "201": { description: Profile created. }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v1/auth/me:
+    get:
+      tags: [Authentication]
+      security: [{ FirebaseBearer: [] }]
+      summary: Retrieve the authenticated customer's profile.
+      responses:
+        "200": { description: Current customer profile. }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+    patch:
+      tags: [Authentication]
+      security: [{ FirebaseBearer: [] }]
+      summary: Update permitted fields on the authenticated customer's profile.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CustomerProfilePatch" }
+      responses:
+        "200": { description: Customer profile updated. }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /api/v1/orders/my:
+    get:
+      tags: [Orders]
+      security: [{ FirebaseBearer: [] }]
+      summary: List orders belonging to the authenticated customer.
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        "200": { description: Customer-owned order page. }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /api/v1/orders/my/{id}:
+    get:
+      tags: [Orders]
+      security: [{ FirebaseBearer: [] }]
+      summary: Retrieve one order owned by the authenticated customer.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Customer-owned order. }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/products:
+    get:
+      tags: [Products]
+      summary: List active products; admins may include inactive items.
+      parameters:
+        - { name: search, in: query, schema: { type: string } }
+        - { name: categoryId, in: query, schema: { type: string } }
+        - { name: minPrice, in: query, schema: { type: number, minimum: 0 } }
+        - { name: maxPrice, in: query, schema: { type: number, minimum: 0 } }
+        - { name: stock, in: query, schema: { type: string, enum: [in_stock, out_of_stock] } }
+        - { name: sort, in: query, schema: { type: string, enum: [name, price, createdAt, updatedAt] } }
+        - { name: order, in: query, schema: { type: string, enum: [asc, desc] } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+        - { name: cursor, in: query, schema: { type: string } }
+        - { name: includeInactive, in: query, schema: { type: boolean } }
+      responses:
+        "200": { description: Product page. }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Products]
+      security: [{ FirebaseBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProductInput" }
+      responses:
+        "201": { description: Product created. }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /api/v1/products/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Products]
+      responses:
+        "200": { description: Product details. }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      tags: [Products]
+      security: [{ FirebaseBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProductPatch" }
+      responses:
+        "200": { description: Product updated. }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Products]
+      security: [{ FirebaseBearer: [] }]
+      responses:
+        "200": { description: Product archived. }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /api/v1/products/{id}/status:
+    patch:
+      tags: [Products]
+      security: [{ FirebaseBearer: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [isActive]
+              properties: { isActive: { type: boolean } }
+      responses:
+        "200": { description: Product activation changed. }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /api/v1/categories:
+    get:
+      tags: [Categories]
+      responses: { "200": { description: Active categories. } }
+    post:
+      tags: [Categories]
+      security: [{ FirebaseBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CategoryInput" }
+      responses:
+        "201": { description: Category created. }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /api/v1/categories/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Categories]
+      responses: { "200": { description: Category. }, "404": { $ref: "#/components/responses/Error" } }
+    patch:
+      tags: [Categories]
+      security: [{ FirebaseBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CategoryPatch" }
+      responses: { "200": { description: Category updated. }, "401": { $ref: "#/components/responses/Error" }, "403": { $ref: "#/components/responses/Error" } }
+    delete:
+      tags: [Categories]
+      security: [{ FirebaseBearer: [] }]
+      responses: { "200": { description: Category deleted. }, "409": { $ref: "#/components/responses/Error" }, "401": { $ref: "#/components/responses/Error" }, "403": { $ref: "#/components/responses/Error" } }
+  /api/v1/uploads/signature:
+    post:
+      tags: [Uploads]
+      security: [{ FirebaseBearer: [] }]
+      responses:
+        "200": { description: Short-lived signed Cloudinary upload parameters. }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /api/v1/uploads:
+    delete:
+      tags: [Uploads]
+      security: [{ FirebaseBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [publicId]
+              properties: { publicId: { type: string } }
+      responses:
+        "200": { description: Image deleted if not referenced. }
+        "409": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /api/v1/orders:
+    post:
+      tags: [Orders]
+      security:
+        - FirebaseBearer: []
+        - {}
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 8, maxLength: 128 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OrderInput" }
+      responses:
+        "201": { description: Guest order created; totals are calculated server-side. }
+        "400": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+    get:
+      tags: [Orders]
+      security: [{ FirebaseBearer: [] }]
+      responses:
+        "200": { description: Administrator order list. }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /api/v1/orders/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Orders]
+      security: [{ FirebaseBearer: [] }]
+      responses: { "200": { description: Administrator order details. }, "401": { $ref: "#/components/responses/Error" }, "403": { $ref: "#/components/responses/Error" } }
+  /api/v1/orders/{id}/track:
+    post:
+      tags: [Orders]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [phone]
+              properties: { phone: { type: string, minLength: 7, maxLength: 30 } }
+      responses:
+        "200": { description: Privacy-limited tracking status. }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/orders/{id}/status:
+    patch:
+      tags: [Orders]
+      security: [{ FirebaseBearer: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [confirmed, processing, packed, shipped, out_for_delivery, delivered, cancelled, returned]
+      responses:
+        "200": { description: Order status updated. }
+        "409": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+components:
+  securitySchemes:
+    FirebaseBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: Firebase ID token
+  responses:
+    Error:
+      description: Safe error response.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    Success:
+      type: object
+      required: [success, data]
+      properties:
+        success: { const: true }
+        data: {}
+        meta: { type: object }
+    Error:
+      type: object
+      required: [success, error, requestId]
+      properties:
+        success: { const: false }
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            details: {}
+        requestId: { type: string }
+    CustomerProfilePatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        displayName: { type: string, minLength: 1, maxLength: 120 }
+        phoneNumber: { type: [string, "null"], minLength: 7, maxLength: 30 }
+    ProductInput:
+      type: object
+      additionalProperties: false
+      required: [name, sku, categoryId, price, stock]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 160 }
+        sku: { type: string, minLength: 1, maxLength: 80 }
+        description: { type: string }
+        shortDescription: { type: string }
+        categoryId: { type: string }
+        price: { type: number, minimum: 0 }
+        salePrice: { type: [number, "null"], minimum: 0 }
+        stock: { type: integer, minimum: 0 }
+        images:
+          type: array
+          maxItems: 12
+          items:
+            type: object
+            additionalProperties: false
+            required: [url, publicId]
+            properties:
+              url: { type: string, format: uri }
+              publicId: { type: string }
+        isFeatured: { type: boolean }
+        isBestSeller: { type: boolean }
+        isTrending: { type: boolean }
+        isNewArrival: { type: boolean }
+        isActive: { type: boolean }
+    ProductPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 160 }
+        sku: { type: string, minLength: 1, maxLength: 80 }
+        description: { type: string }
+        shortDescription: { type: string }
+        categoryId: { type: string }
+        price: { type: number, minimum: 0 }
+        salePrice: { type: [number, "null"], minimum: 0 }
+        stock: { type: integer, minimum: 0 }
+        images: { type: array, maxItems: 12 }
+        isFeatured: { type: boolean }
+        isBestSeller: { type: boolean }
+        isTrending: { type: boolean }
+        isNewArrival: { type: boolean }
+        isActive: { type: boolean }
+    CategoryInput:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        image: { type: [string, "null"], format: uri }
+        isActive: { type: boolean }
+        displayOrder: { type: integer, minimum: 0 }
+    CategoryPatch:
+      allOf:
+        - $ref: "#/components/schemas/CategoryInput"
+      description: Any subset of CategoryInput fields.
+    OrderInput:
+      type: object
+      additionalProperties: false
+      required: [customer, items, paymentMethod]
+      properties:
+        customer:
+          type: object
+          additionalProperties: false
+          required: [name, phone, address, city]
+          properties:
+            name: { type: string }
+            phone: { type: string }
+            address: { type: string }
+            city: { type: string }
+        items:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            type: object
+            additionalProperties: false
+            required: [productId, quantity]
+            properties:
+              productId: { type: string }
+              quantity: { type: integer, minimum: 1, maximum: 99 }
+        couponCode: { type: string }
+        paymentMethod: { const: cash_on_delivery }
