@@ -17,11 +17,11 @@ export const SCRIPTS_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const BACKEND_DIR = join(SCRIPTS_DIR, "..");
 
 export function defaultServiceAccountPath() {
-  return (
-    process.env.FIREBASE_SERVICE_ACCOUNT_PATH ||
-    process.env.GOOGLE_APPLICATION_CREDENTIALS ||
-    join(BACKEND_DIR, "mobapp-4454b-firebase-adminsdk-fbsvc-be6fb304c9.json")
-  );
+  const path = process.env.FIREBASE_SERVICE_ACCOUNT_PATH || process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  if (!path) {
+    throw new Error("Set FIREBASE_SERVICE_ACCOUNT_PATH or GOOGLE_APPLICATION_CREDENTIALS to a protected credential file.");
+  }
+  return path;
 }
 
 export function loadServiceAccount(path = defaultServiceAccountPath()) {
@@ -171,7 +171,7 @@ export function describeFirestoreError(error) {
     return (
       `${message}\n\n` +
       "Create the default Firestore database first:\n" +
-      "https://console.firebase.google.com/project/mobapp-4454b/firestore"
+      "https://console.firebase.google.com/ and select the configured Firebase project."
     );
   }
   return message;

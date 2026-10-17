@@ -1,8 +1,8 @@
 # Frontend integration
 
 > **Which API am I talking to?**
-> The app in `../frontent` runs with its own bundled Express server
-> (`frontent/server.ts`) on port 3000, which serves the storefront and a
+> The app in `../client_frontend` runs with its own bundled Express server
+> (`client_frontend/server.ts`) on port 3000, which serves the storefront and a
 > `/api` + `/api/v1` API from the same origin. This document describes the
 > optional standalone Firebase API in this directory. A frontend can be pointed
 > at it with `VITE_API_BASE_URL`, but note that this API has no

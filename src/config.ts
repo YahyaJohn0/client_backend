@@ -45,11 +45,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const cloudinary = cloudinaryCredentials(env.CLOUDINARY_URL);
   const parsed = schema.safeParse({
     ...env,
-    FIREBASE_PROJECT_ID: env.FIREBASE_PROJECT_ID ?? env.VITE_FIREBASE_PROJECT_ID,
-    CLOUDINARY_CLOUD_NAME: env.CLOUDINARY_CLOUD_NAME ?? env.VITE_CLOUDINARY_CLOUD_NAME ?? cloudinary.cloudName,
+    CLOUDINARY_CLOUD_NAME: env.CLOUDINARY_CLOUD_NAME ?? cloudinary.cloudName,
     CLOUDINARY_API_KEY: env.CLOUDINARY_API_KEY ?? cloudinary.apiKey,
     CLOUDINARY_API_SECRET: env.CLOUDINARY_API_SECRET ?? cloudinary.apiSecret,
-    CLOUDINARY_UPLOAD_PRESET: env.CLOUDINARY_UPLOAD_PRESET ?? env.VITE_CLOUDINARY_UPLOAD_PRESET,
   });
   if (!parsed.success) {
     const missing = [...new Set(parsed.error.issues.map((issue) => String(issue.path[0])))];

@@ -8,7 +8,8 @@
  * an accurate "now" from Google's own HTTP Date header, mints a short-lived
  * OAuth token from the service account, and reports whether Firestore exists.
  *
- * Usage (from backend/):
+ * Set FIREBASE_PROJECT_ID and FIREBASE_SERVICE_ACCOUNT_PATH or
+ * GOOGLE_APPLICATION_CREDENTIALS, then run from client_backend/:
  *   node scripts/firebase-selftest.mjs
  *
  * Exit code 0 = Firestore reachable and authenticated; 1 = a problem was found.
@@ -16,15 +17,9 @@
 import { createSign } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { request as httpsRequest } from "node:https";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const PROJECT_ID = process.env.FIREBASE_PROJECT_ID || "mobapp-4454b";
-const SERVICE_ACCOUNT_PATH =
-  process.env.FIREBASE_SERVICE_ACCOUNT_PATH ||
-  process.env.GOOGLE_APPLICATION_CREDENTIALS ||
-  join(HERE, "..", "mobapp-4454b-firebase-adminsdk-fbsvc-be6fb304c9.json");
+const PROJECT_ID = process.env.FIREBASE_PROJECT_ID;
+const SERVICE_ACCOUNT_PATH = process.env.FIREBASE_SERVICE_ACCOUNT_PATH || process.env.GOOGLE_APPLICATION_CREDENTIALS;
 
 function httpsCall(method, url, { headers = {}, body } = {}) {
   return new Promise((resolve, reject) => {
@@ -95,8 +90,16 @@ async function mintAccessToken(serviceAccount, nowSeconds) {
 }
 
 async function main() {
+  if (!PROJECT_ID) throw new Error("Set FIREBASE_PROJECT_ID before running this self-test.");
+  if (!SERVICE_ACCOUNT_PATH) {
+    throw new Error("Set FIREBASE_SERVICE_ACCOUNT_PATH or GOOGLE_APPLICATION_CREDENTIALS to a protected credential file.");
+  }
+
   const serviceAccount = JSON.parse(readFileSync(SERVICE_ACCOUNT_PATH, "utf8"));
-  console.log(`Service account : ${serviceAccount.client_email}`);
+  if (serviceAccount.project_id !== PROJECT_ID) {
+    throw new Error("FIREBASE_PROJECT_ID does not match the configured service account.");
+  }
+  console.log("Service account : configured");
   console.log(`Project         : ${serviceAccount.project_id}`);
 
   const now = await trustedNowSeconds();

@@ -3,11 +3,11 @@
  * Mirrors the bundled store's catalogue into Firebase Firestore.
  *
  * The storefront's Express server keeps the authoritative data in
- * frontent/data/store.json; this script pushes that data to Firestore with the
+ * client_frontend/data/store.json; this script pushes that data to Firestore with the
  * service account, so the same products are available to Firebase clients and
  * to the standalone backend API.
  *
- * Usage (from backend/):
+ * Usage (from client_backend/):
  *   node scripts/push-store-to-firestore.mjs --dry-run
  *   node scripts/push-store-to-firestore.mjs                 # products only
  *   node scripts/push-store-to-firestore.mjs --all           # + categories, banners, settings
@@ -33,7 +33,7 @@ import {
 
 function parseArgs(argv) {
   const options = {
-    store: join(BACKEND_DIR, "..", "frontent", "data", "store.json"),
+    store: join(BACKEND_DIR, "..", "client_frontend", "data", "store.json"),
     database: "(default)",
     all: false,
     dryRun: false,

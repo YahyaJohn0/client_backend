@@ -24,15 +24,15 @@ Set the required variables in `.env` or in the hosting platform:
 | `LOG_LEVEL` | No | Structured log level |
 | `CORS_ORIGINS` | Yes | Comma-separated exact browser origins; no wildcard is accepted as a configuration default |
 | `TRUST_PROXY` | No | Reverse-proxy hops to trust for client IP/HTTPS detection (default `1`; set `false` if exposed directly) |
-| `FIREBASE_PROJECT_ID` or `VITE_FIREBASE_PROJECT_ID` | Yes | Firebase project ID; the Vite name is accepted as a backend compatibility alias |
+| `FIREBASE_PROJECT_ID` | Yes | Public Firebase project ID used by the backend |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | One credential source | Service account JSON stored as a hosting secret |
 | `GOOGLE_APPLICATION_CREDENTIALS` | One credential source | Path to a protected service-account file; alternatively use workload identity / Application Default Credentials |
 | `ADMIN_UIDS` | No | Comma-separated Firebase Auth UIDs assigned administrator access by the trusted operator |
-| `CLOUDINARY_URL` | For uploads | Server-side Cloudinary URL (`cloudinary://API_KEY:API_SECRET@CLOUD_NAME`) |
-| `CLOUDINARY_CLOUD_NAME` or `VITE_CLOUDINARY_CLOUD_NAME` | For uploads | Cloudinary cloud name; explicit backend value takes precedence |
+| `CLOUDINARY_URL` | For uploads | Private server-side Cloudinary credential URL; never put it in browser config or documentation |
+| `CLOUDINARY_CLOUD_NAME` | For uploads | Public Cloudinary cloud name |
 | `CLOUDINARY_API_KEY` | For uploads | Cloudinary API key; otherwise read from `CLOUDINARY_URL` |
 | `CLOUDINARY_API_SECRET` | For uploads | Cloudinary API secret; otherwise read from `CLOUDINARY_URL`; server-side only |
-| `CLOUDINARY_UPLOAD_PRESET` or `VITE_CLOUDINARY_UPLOAD_PRESET` | For signed uploads | Cloudinary signed preset configured with the intended maximum file size |
+| `CLOUDINARY_UPLOAD_PRESET` | For signed uploads | Public preset identifier; uploads are signed server-side with `CLOUDINARY_API_SECRET` |
 | `CLOUDINARY_ASSET_FOLDER` | No | Restricts product assets (default `zamzam/products`) |
 | `MAX_UPLOAD_BYTES` | No | Maximum upload size returned to clients (default 5 MiB; configure the Cloudinary signed-upload preset to enforce it) |
 | `COD_ENABLED` | No | Enable guest Cash on Delivery checkout (default `true`) |
@@ -43,7 +43,7 @@ Copy `.env.example` to `.env` as a starting point. Add Firebase Admin credential
 
 Firebase credentials must never be put in frontend variables, committed, or written into `.env.example`. The server uses `FIREBASE_SERVICE_ACCOUNT_JSON` when set; otherwise it uses Application Default Credentials. On local Windows development, protect the service-account file and set `GOOGLE_APPLICATION_CREDENTIALS` to its absolute path. Do not check it into source control.
 
-The backend loads a local `.env` file at startup when present. Vite-prefixed Firebase project ID, Cloudinary cloud name, and upload preset values are accepted for compatibility, but `VITE_FIREBASE_API_KEY` and `VITE_FIREBASE_AUTH_DOMAIN` are frontend Firebase client settings and do not authenticate Firebase Admin. The backend still needs a service account or Application Default Credentials with Firestore access. Keep `CLOUDINARY_URL` in the backend environment only; never expose it as a `VITE_` variable.
+The backend loads a local `.env` file at startup when present. It deliberately does not read `VITE_*` variables: those belong to browser builds and must not be used for server credentials. The Firebase project ID is public, but Firebase Admin still needs a service account or Application Default Credentials with Firestore access. Keep `CLOUDINARY_URL` and all private Cloudinary credentials in the backend environment only.
 
 ## Run and verify
 
@@ -105,17 +105,17 @@ Have a trusted project operator obtain the target user's Firebase Auth UID out o
 
 Two Node scripts under [`scripts/`](./scripts) talk to Firebase with the service account directly, which makes them usable for diagnostics before the API itself is deployed:
 
-- `node scripts/firebase-selftest.mjs` — reports clock skew, mints an OAuth token, lists Firestore databases and Storage buckets, and reads the `products` collection.
-- `node scripts/push-store-to-firestore.mjs [--all] [--dry-run]` — mirrors `../frontent/data/store.json` into the default Firestore database (products by default; add `--all` for categories, banners and settings).
+- `node scripts/firebase-selftest.mjs` — reports clock skew, mints an OAuth token, lists Firestore databases and Storage buckets, and reads the `products` collection. Set `FIREBASE_PROJECT_ID` and `FIREBASE_SERVICE_ACCOUNT_PATH` (or `GOOGLE_APPLICATION_CREDENTIALS`) first.
+- `node scripts/push-store-to-firestore.mjs [--all] [--dry-run]` — mirrors `../client_frontend/data/store.json` into the default Firestore database (products by default; add `--all` for categories, banners and settings).
 
 Prerequisites:
 
 1. **Sync the machine clock.** Google rejects signed requests whose `iat` is in the future. Run `w32tm /resync` from an elevated prompt (or Settings → Time & language → Sync now). The scripts compensate by using Google's own time, but the app's Firebase calls cannot.
-2. **Create the default Firestore database in Native mode** at <https://console.firebase.google.com/project/mobapp-4454b/firestore>. A database created with an explicit id (for example `default`) or one whose data access mode is disabled cannot be used by the Firebase SDKs.
+2. **Create the default Firestore database in Native mode** in the configured Firebase project's console. A database created with an explicit id (for example `default`) or one whose data access mode is disabled cannot be used by the Firebase SDKs.
 
 ## Deployment
 
-Deploy the Node.js service to a platform that supports Node 20+, environment secrets, outbound Firebase/Cloudinary calls, and HTTPS termination. Run `npm ci`, `npm run build`, then `npm start`. Provide Firebase credentials through workload identity/ADC or a protected hosting secret, set exact production `CORS_ORIGINS`, set `TRUST_PROXY=1` behind the platform proxy, configure the Firebase project and Firestore indexes, provide Cloudinary credentials if uploads are enabled, and set a unique random `ORDER_TRACKING_HMAC_SECRET`. Confirm that backups, billing limits, retention, monitoring, and deployment health checks are configured by the operator. No deployment has been performed.
+Deploy the Node.js service to a platform that supports Node 22+, environment secrets, outbound Firebase/Cloudinary calls, and HTTPS termination. Run `npm ci`, `npm run build`, then `npm start`. Provide Firebase credentials through workload identity/ADC or a protected hosting secret, set exact production `CORS_ORIGINS`, set `TRUST_PROXY=1` behind the platform proxy, configure the Firebase project and Firestore indexes, provide Cloudinary credentials if uploads are enabled, and set a unique random `ORDER_TRACKING_HMAC_SECRET`. Confirm that backups, billing limits, retention, monitoring, and deployment health checks are configured by the operator. No deployment has been performed.
 
 ## Limitations to resolve before production
 
