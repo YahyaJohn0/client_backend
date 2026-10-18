@@ -71,15 +71,13 @@ docker run --rm -p 8080:8080 --env-file .env zamzam-backend
 
 The image does not include `.env` or service-account files. For Firebase authentication, supply `FIREBASE_SERVICE_ACCOUNT` as a protected environment secret. Do not copy credentials into the image. Set `PORT` to the port assigned by your container host.
 
-## Netlify Functions
+## Vercel
 
-This repository is configured to deploy the Express API as a Netlify Function. Netlify builds `dist/` first and bundles `netlify/functions/api.ts`; the `public/` directory is only a placeholder because this backend repository has no static frontend.
+This repository deploys the Express API as a Vercel Node.js Function. In Vercel, import the backend repository and set its Root Directory to the directory containing this `package.json` (for a backend-only repository, leave it at `./`). Vercel uses `vercel.json` to build the TypeScript app and route requests to `api/[...path].js`.
 
-Configure Netlify with the backend repository root as the base directory (leave Package directory empty), `npm run build` as the build command, `public` as the publish directory, and `netlify/functions` as the Functions directory. The rewrite forwards `/api/*` requests to the function; keep the existing `/api/v1/...` route paths.
+Add the required variables from the table above in the Vercel project's Settings > Environment Variables for each deployment environment. `FIREBASE_SERVICE_ACCOUNT` must contain the complete service-account JSON; enter it as a protected environment variable and never commit the credential file. Do not set `PORT` on Vercel; the platform manages the function runtime. Deploy after saving the environment variables.
 
-Set runtime environment variables in Netlify's Functions scope, not only its build scope. `FIREBASE_SERVICE_ACCOUNT` must contain the full service-account JSON serialized onto one line. For example, `jq -c . service-account.json` prints a compact one-line value; add that output as a protected Netlify environment variable and never commit the file or command output. Use the Netlify UI instead of copying the credential into shell history.
-
-The API does not proxy image bytes: admins request a Cloudinary signature and the browser uploads directly to Cloudinary. This avoids sending image data through the Function request-size limit.
+The API routes remain `/api/v1/...`; `/health/live` and `/health/ready` are routed through the function as well. The API does not proxy image bytes: admins request a Cloudinary signature and the browser uploads directly to Cloudinary, avoiding function request-size limits.
 
 ## API
 

@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "buildCommand": "npm run build",
+  "installCommand": "npm ci",
+  "rewrites": [
+    {
+      "source": "/health/:path*",
+      "destination": "/api/health/:path*"
+    }
+  ]
+}
