@@ -13,7 +13,7 @@ export function createLogger(config: Config) {
         "api_key",
         "api_secret",
         "secret",
-        "FIREBASE_SERVICE_ACCOUNT_JSON",
+        "FIREBASE_SERVICE_ACCOUNT",
       ],
       censor: "[REDACTED]",
     },

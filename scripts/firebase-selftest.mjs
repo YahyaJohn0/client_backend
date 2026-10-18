@@ -8,8 +8,8 @@
  * an accurate "now" from Google's own HTTP Date header, mints a short-lived
  * OAuth token from the service account, and reports whether Firestore exists.
  *
- * Set FIREBASE_PROJECT_ID and FIREBASE_SERVICE_ACCOUNT_PATH or
- * GOOGLE_APPLICATION_CREDENTIALS, then run from client_backend/:
+ * Set FIREBASE_PROJECT_ID and FIREBASE_SERVICE_ACCOUNT or
+ * FIREBASE_SERVICE_ACCOUNT_PATH, then run from client_backend/:
  *   node scripts/firebase-selftest.mjs
  *
  * Exit code 0 = Firestore reachable and authenticated; 1 = a problem was found.
@@ -19,7 +19,7 @@ import { readFileSync } from "node:fs";
 import { request as httpsRequest } from "node:https";
 
 const PROJECT_ID = process.env.FIREBASE_PROJECT_ID;
-const SERVICE_ACCOUNT_PATH = process.env.FIREBASE_SERVICE_ACCOUNT_PATH || process.env.GOOGLE_APPLICATION_CREDENTIALS;
+const SERVICE_ACCOUNT_PATH = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
 
 function httpsCall(method, url, { headers = {}, body } = {}) {
   return new Promise((resolve, reject) => {
@@ -91,11 +91,13 @@ async function mintAccessToken(serviceAccount, nowSeconds) {
 
 async function main() {
   if (!PROJECT_ID) throw new Error("Set FIREBASE_PROJECT_ID before running this self-test.");
-  if (!SERVICE_ACCOUNT_PATH) {
-    throw new Error("Set FIREBASE_SERVICE_ACCOUNT_PATH or GOOGLE_APPLICATION_CREDENTIALS to a protected credential file.");
+  if (!process.env.FIREBASE_SERVICE_ACCOUNT && !SERVICE_ACCOUNT_PATH) {
+    throw new Error("Set FIREBASE_SERVICE_ACCOUNT or FIREBASE_SERVICE_ACCOUNT_PATH to provide Firebase credentials.");
   }
 
-  const serviceAccount = JSON.parse(readFileSync(SERVICE_ACCOUNT_PATH, "utf8"));
+  const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT
+    ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)
+    : JSON.parse(readFileSync(SERVICE_ACCOUNT_PATH, "utf8"));
   if (serviceAccount.project_id !== PROJECT_ID) {
     throw new Error("FIREBASE_PROJECT_ID does not match the configured service account.");
   }

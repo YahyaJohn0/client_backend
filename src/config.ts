@@ -10,8 +10,7 @@ const schema = z.object({
   /** Number of reverse-proxy hops to trust (e.g. 1 on a hosting platform). */
   TRUST_PROXY: z.string().default("1"),
   FIREBASE_PROJECT_ID: z.string().min(1),
-  FIREBASE_SERVICE_ACCOUNT_JSON: z.string().optional(),
-  GOOGLE_APPLICATION_CREDENTIALS: z.string().optional(),
+  FIREBASE_SERVICE_ACCOUNT: z.string().optional(),
   ADMIN_UIDS: z.string().default(""),
   CLOUDINARY_CLOUD_NAME: z.string().optional(),
   CLOUDINARY_API_KEY: z.string().optional(),

@@ -12,7 +12,6 @@ Standalone TypeScript/Express API using Firebase Admin and Cloud Firestore. This
 
 ```powershell
 npm install
-Copy-Item .env.example .env
 ```
 
 Set the required variables in `.env` or in the hosting platform:
@@ -20,13 +19,12 @@ Set the required variables in `.env` or in the hosting platform:
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `NODE_ENV` | No | `development`, `test`, or `production` |
-| `PORT` | No | HTTP listen port (default `8080`) |
+| `PORT` | No | HTTP listen port  |
 | `LOG_LEVEL` | No | Structured log level |
 | `CORS_ORIGINS` | Yes | Comma-separated exact browser origins; no wildcard is accepted as a configuration default |
 | `TRUST_PROXY` | No | Reverse-proxy hops to trust for client IP/HTTPS detection (default `1`; set `false` if exposed directly) |
 | `FIREBASE_PROJECT_ID` | Yes | Public Firebase project ID used by the backend |
-| `FIREBASE_SERVICE_ACCOUNT_JSON` | One credential source | Service account JSON stored as a hosting secret |
-| `GOOGLE_APPLICATION_CREDENTIALS` | One credential source | Path to a protected service-account file; alternatively use workload identity / Application Default Credentials |
+| `FIREBASE_SERVICE_ACCOUNT` | One credential source | Entire service-account JSON stored as a hosting secret; use Application Default Credentials only on hosts that provide workload identity |
 | `ADMIN_UIDS` | No | Comma-separated Firebase Auth UIDs assigned administrator access by the trusted operator |
 | `CLOUDINARY_URL` | For uploads | Private server-side Cloudinary credential URL; never put it in browser config or documentation |
 | `CLOUDINARY_CLOUD_NAME` | For uploads | Public Cloudinary cloud name |
@@ -39,9 +37,9 @@ Set the required variables in `.env` or in the hosting platform:
 | `DEFAULT_SHIPPING_FEE` | No | Fallback shipping fee when no store setting is present |
 | `ORDER_TRACKING_HMAC_SECRET` | Yes | Random secret of at least 32 characters used to protect guest order lookup |
 
-Copy `.env.example` to `.env` as a starting point. Add Firebase Admin credentials through a protected local file path or hosting secret; neither credential value belongs in the example file.
+For local development, keep settings in an ignored `.env` file. Add Firebase Admin credentials through `FIREBASE_SERVICE_ACCOUNT` as a protected secret; never put the credential JSON in a tracked file.
 
-Firebase credentials must never be put in frontend variables, committed, or written into `.env.example`. The server uses `FIREBASE_SERVICE_ACCOUNT_JSON` when set; otherwise it uses Application Default Credentials. On local Windows development, protect the service-account file and set `GOOGLE_APPLICATION_CREDENTIALS` to its absolute path. Do not check it into source control.
+Firebase credentials must never be put in frontend variables or committed. The server uses `FIREBASE_SERVICE_ACCOUNT` when set; otherwise it uses Application Default Credentials.
 
 The backend loads a local `.env` file at startup when present. It deliberately does not read `VITE_*` variables: those belong to browser builds and must not be used for server credentials. The Firebase project ID is public, but Firebase Admin still needs a service account or Application Default Credentials with Firestore access. Keep `CLOUDINARY_URL` and all private Cloudinary credentials in the backend environment only.
 
@@ -56,6 +54,32 @@ npm start
 ```
 
 `GET /health/live` checks process liveness. `GET /health/ready` performs a Firestore read and returns only a generic readiness response. Firestore composite indexes may be required for combinations of catalog filters; create the indexes requested by Firebase for the selected production query patterns before launch.
+
+## Docker
+
+Build the image from the `client_backend/` directory:
+
+```powershell
+docker build -t zamzam-backend .
+```
+
+Run it with the required application settings supplied through the container environment:
+
+```powershell
+docker run --rm -p 8080:8080 --env-file .env zamzam-backend
+```
+
+The image does not include `.env` or service-account files. For Firebase authentication, supply `FIREBASE_SERVICE_ACCOUNT` as a protected environment secret. Do not copy credentials into the image. Set `PORT` to the port assigned by your container host.
+
+## Netlify Functions
+
+This repository is configured to deploy the Express API as a Netlify Function. Netlify builds `dist/` first and bundles `netlify/functions/api.ts`; the `public/` directory is only a placeholder because this backend repository has no static frontend.
+
+Configure Netlify with the backend repository root as the base directory (leave Package directory empty), `npm run build` as the build command, `public` as the publish directory, and `netlify/functions` as the Functions directory. The rewrite forwards `/api/*` requests to the function; keep the existing `/api/v1/...` route paths.
+
+Set runtime environment variables in Netlify's Functions scope, not only its build scope. `FIREBASE_SERVICE_ACCOUNT` must contain the full service-account JSON serialized onto one line. For example, `jq -c . service-account.json` prints a compact one-line value; add that output as a protected Netlify environment variable and never commit the file or command output. Use the Netlify UI instead of copying the credential into shell history.
+
+The API does not proxy image bytes: admins request a Cloudinary signature and the browser uploads directly to Cloudinary. This avoids sending image data through the Function request-size limit.
 
 ## API
 
@@ -105,7 +129,7 @@ Have a trusted project operator obtain the target user's Firebase Auth UID out o
 
 Two Node scripts under [`scripts/`](./scripts) talk to Firebase with the service account directly, which makes them usable for diagnostics before the API itself is deployed:
 
-- `node scripts/firebase-selftest.mjs` — reports clock skew, mints an OAuth token, lists Firestore databases and Storage buckets, and reads the `products` collection. Set `FIREBASE_PROJECT_ID` and `FIREBASE_SERVICE_ACCOUNT_PATH` (or `GOOGLE_APPLICATION_CREDENTIALS`) first.
+- `node scripts/firebase-selftest.mjs` — reports clock skew, mints an OAuth token, lists Firestore databases and Storage buckets, and reads the `products` collection. Set `FIREBASE_PROJECT_ID` and `FIREBASE_SERVICE_ACCOUNT` (or `FIREBASE_SERVICE_ACCOUNT_PATH`) first.
 - `node scripts/push-store-to-firestore.mjs [--all] [--dry-run]` — mirrors `../client_frontend/data/store.json` into the default Firestore database (products by default; add `--all` for categories, banners and settings).
 
 Prerequisites:

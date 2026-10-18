@@ -1,0 +1,17 @@
+[build]
+  command = "npm run build"
+  functions = "netlify/functions"
+  publish = "public"
+
+[build.environment]
+  NODE_VERSION = "22"
+  SECRETS_SCAN_OMIT_KEYS = "NODE_ENV,PORT,LOG_LEVEL,CLOUDINARY_UPLOAD_PRESET"
+
+[functions]
+  node_bundler = "esbuild"
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
+  force = true

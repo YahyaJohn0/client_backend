@@ -5,6 +5,7 @@ dist/
 !.env.example
 *.log
 coverage/
+.netlify/
 service-account*.json
 *-service-account*.json
 *firebase-adminsdk*.json

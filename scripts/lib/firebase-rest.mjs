@@ -17,9 +17,9 @@ export const SCRIPTS_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const BACKEND_DIR = join(SCRIPTS_DIR, "..");
 
 export function defaultServiceAccountPath() {
-  const path = process.env.FIREBASE_SERVICE_ACCOUNT_PATH || process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  const path = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
   if (!path) {
-    throw new Error("Set FIREBASE_SERVICE_ACCOUNT_PATH or GOOGLE_APPLICATION_CREDENTIALS to a protected credential file.");
+    throw new Error("Set FIREBASE_SERVICE_ACCOUNT_PATH to a protected credential file.");
   }
   return path;
 }

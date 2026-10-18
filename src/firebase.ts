@@ -4,8 +4,8 @@ import { getFirestore } from "firebase-admin/firestore";
 import type { Config } from "./config.js";
 
 export function initializeFirebase(config: Config) {
-  const credential = config.FIREBASE_SERVICE_ACCOUNT_JSON
-    ? cert(JSON.parse(config.FIREBASE_SERVICE_ACCOUNT_JSON) as Parameters<typeof cert>[0])
+  const credential = config.FIREBASE_SERVICE_ACCOUNT
+    ? cert(JSON.parse(config.FIREBASE_SERVICE_ACCOUNT) as Parameters<typeof cert>[0])
     : applicationDefault();
   const app = getApps()[0] ?? initializeApp({
     credential,

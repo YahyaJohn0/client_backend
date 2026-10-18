@@ -1,0 +1,17 @@
+app = "your-shop-backend"
+primary_region = "sin"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8080          # must match EXPOSE and your app's PORT
+  force_https = true
+  auto_stop_machines = "stop"   # or "suspend" / false
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

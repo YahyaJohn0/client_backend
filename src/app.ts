@@ -1,4 +1,6 @@
 import { randomBytes, createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
 import rateLimit from "express-rate-limit";
@@ -8,8 +10,10 @@ import type { DocumentSnapshot, Firestore, Query } from "firebase-admin/firestor
 import helmet from "helmet";
 import type { Logger } from "pino";
 import { z } from "zod";
-import { parseAdminUids, type Config } from "./config.js";
+import { loadConfig, parseAdminUids, type Config } from "./config.js";
 import { HttpError } from "./errors.js";
+import { initializeFirebase } from "./firebase.js";
+import { createLogger } from "./logger.js";
 import { categoryInputSchema, categoryPatchSchema, customerProfilePatchSchema, orderInputSchema, orderStatusSchema, productInputSchema, productPatchSchema, productStatusSchema, publicIdSchema, trackingSchema } from "./schemas.js";
 
 type Dependencies = {
@@ -810,3 +814,19 @@ function requireCloudinary(config: Config) {
 
   cloudinary.config({ cloud_name: config.CLOUDINARY_CLOUD_NAME, api_key: config.CLOUDINARY_API_KEY, api_secret: config.CLOUDINARY_API_SECRET });
 }
+
+const envFile = join(process.cwd(), ".env");
+if (existsSync(envFile)) process.loadEnvFile(envFile);
+
+const config = loadConfig();
+export const logger = createLogger(config);
+
+process.on("unhandledRejection", (reason) => {
+  logger.error(
+    { error: reason instanceof Error ? reason.message : String(reason) },
+    "unhandled promise rejection",
+  );
+});
+
+const { db, auth } = initializeFirebase(config);
+export const app = createApp({ config, db, auth, logger });
