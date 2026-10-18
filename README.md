@@ -20,7 +20,7 @@ Set the required variables in `.env` or in the hosting platform:
 | --- | --- | --- |
 | `NODE_ENV` | No | `development`, `test`, or `production` |
 | `PORT` | No | HTTP listen port  |
-| `LOG_LEVEL` | No | Structured log level |
+| `LOG_LEVEL` 
 | `CORS_ORIGINS` | Yes | Comma-separated exact browser origins; no wildcard is accepted as a configuration default |
 | `TRUST_PROXY` | No | Reverse-proxy hops to trust for client IP/HTTPS detection (default `1`; set `false` if exposed directly) |
 | `FIREBASE_PROJECT_ID` | Yes | Public Firebase project ID used by the backend |
