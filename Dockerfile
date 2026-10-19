@@ -11,7 +11,8 @@ RUN npm run build
 
 FROM node:22-bookworm-slim AS runtime
 
-ENV NODE_ENV=production
+ENV NODE_ENV=production \
+    PORT=8080
 WORKDIR /app
 
 COPY package.json package-lock.json ./
@@ -22,4 +23,4 @@ COPY --from=build --chown=node:node /app/dist ./dist
 USER node
 
 EXPOSE 8080
-CMD ["npm", "start"]
+CMD ["node", "dist/server.js"]

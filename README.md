@@ -71,6 +71,25 @@ docker run --rm -p 8080:8080 --env-file .env zamzam-backend
 
 The image does not include `.env` or service-account files. For Firebase authentication, supply `FIREBASE_SERVICE_ACCOUNT` as a protected environment secret. Do not copy credentials into the image. Set `PORT` to the port assigned by your container host.
 
+### Back4App Containers
+
+Create the Back4App Container from the Git repository and branch containing this `Dockerfile`. Set the repository root directory to the directory containing `Dockerfile` and `package.json`. The image listens on `0.0.0.0` using `PORT` (default `8080`); configure the container's web port as `8080`, or set `PORT` to the port configured for the container.
+
+Add these variables in the Back4App container's Environment Variables settings before deploying:
+
+| Variable | Value |
+| --- | --- |
+| `NODE_ENV` | `production` |
+| `PORT` | `8080` (unless Back4App specifies a different container port) |
+| `CORS_ORIGINS` | Exact public storefront origin, such as `https://shop.example.com`; comma-separated if there is more than one |
+| `FIREBASE_PROJECT_ID` | Firebase project ID |
+| `FIREBASE_SERVICE_ACCOUNT` | Complete Firebase service-account JSON as a protected variable; do not upload it into the image or commit it |
+| `ORDER_TRACKING_HMAC_SECRET` | Random secret of at least 32 characters |
+
+Generate an HMAC secret locally with `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"` and paste its output into Back4App. `ADMIN_UIDS` and Cloudinary settings are only needed when using those features. Keep the Firebase service account and HMAC secret out of build arguments and source control.
+
+After deployment, check `https://<your-container-domain>/health/live`. A process-start error naming `CORS_ORIGINS`, `FIREBASE_PROJECT_ID`, or `ORDER_TRACKING_HMAC_SECRET` means the corresponding Back4App environment variable is missing or empty. `/health/ready` additionally requires Firestore connectivity.
+
 ## Vercel
 
 This repository deploys the Express API as a Vercel Node.js Function. In Vercel, import the backend repository and set its Root Directory to the directory containing this `package.json` (for a backend-only repository, leave it at `./`). Vercel uses `vercel.json` to build the TypeScript app and route requests to `api/[...path].js`.
