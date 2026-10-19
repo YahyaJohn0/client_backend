@@ -6,7 +6,7 @@ const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().min(1).max(65535).default(8080),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
-  CORS_ORIGINS: z.string().min(1),
+  CORS_ORIGINS: z.string().default(""),
   /** Number of reverse-proxy hops to trust (e.g. 1 on a hosting platform). */
   TRUST_PROXY: z.string().default("1"),
   FIREBASE_PROJECT_ID: z.string().min(1),

@@ -1,7 +1,6 @@
 import { randomBytes, createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
 import rateLimit from "express-rate-limit";
 import { v2 as cloudinary } from "cloudinary";
@@ -14,6 +13,7 @@ import { loadConfig, parseAdminUids, type Config } from "./config.js";
 import { HttpError } from "./errors.js";
 import { initializeFirebase } from "./firebase.js";
 import { createLogger } from "./logger.js";
+import { createCorsMiddleware } from "./cors.js";
 import { categoryInputSchema, categoryPatchSchema, customerProfilePatchSchema, orderInputSchema, orderStatusSchema, productInputSchema, productPatchSchema, productStatusSchema, publicIdSchema, trackingSchema } from "./schemas.js";
 
 type Dependencies = {
@@ -150,7 +150,6 @@ function routeId(req: Request): string {
 
 export function createApp({ config, db, auth, logger }: Dependencies) {
   const app = express();
-  const allowedOrigins = new Set(config.CORS_ORIGINS.split(",").map((origin) => origin.trim()).filter(Boolean));
   const admins = parseAdminUids(config.ADMIN_UIDS);
 
   // Hosting platforms terminate TLS and forward X-Forwarded-* headers. Trusting
@@ -171,14 +170,7 @@ export function createApp({ config, db, auth, logger }: Dependencies) {
     res.setHeader("X-Request-Id", req.requestId);
     next();
   });
-  app.use(cors({
-    origin(origin, callback) {
-      if (!origin || allowedOrigins.has(origin)) return callback(null, true);
-      return callback(new HttpError(403, "CORS_ORIGIN_DENIED", "This origin is not allowed."));
-    },
-    methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key"],
-  }));
+  app.use(createCorsMiddleware(config.CORS_ORIGINS));
   app.use(express.json({ limit: "64kb", strict: true }));
   app.use((req: AuthedRequest, res, next) => {
     logger.info({ requestId: req.requestId, method: req.method, path: req.path }, "request");
@@ -336,6 +328,19 @@ export function createApp({ config, db, auth, logger }: Dependencies) {
       sendData(res, profile, undefined, created ? 201 : 200);
     } catch (error) { next(error); }
   });
+  api.get("/auth/admin/me", ...adminOnly, (req: AuthedRequest, res) => {
+    const identifier = req.user!.email || req.user!.uid;
+    sendData(res, {
+      identifier,
+      provider: "firebase",
+      role: "admin",
+      mustChangePassword: false,
+      authenticatedAt: new Date((req.user!.auth_time ?? req.user!.iat) * 1000).toISOString(),
+      recentAuth: Date.now() - (req.user!.auth_time ?? req.user!.iat) * 1000 <= 10 * 60_000,
+      ...(req.user!.email ? { email: req.user!.email } : {}),
+      uid: req.user!.uid,
+    });
+  });
   api.get("/auth/me", accountRateLimit, authenticated, async (req: AuthedRequest, res, next) => {
     try {
       const { profile } = await synchronizeCustomer(req.user!);
@@ -490,6 +495,92 @@ export function createApp({ config, db, auth, logger }: Dependencies) {
       const doc = await db.collection("categories").doc(routeId(req)).get();
       if (!doc.exists || (!doc.get("isActive") && req.query.admin !== "true" && req.query.includeInactive !== "true")) throw new HttpError(404, "NOT_FOUND", "Category not found.");
       sendData(res, { id: doc.id, ...doc.data() });
+    } catch (error) { next(error); }
+  });
+
+  api.get("/settings", async (_req, res, next) => {
+    try {
+      const snapshot = await db.collection("settings").doc("store").get();
+      const data = snapshot.data() ?? {};
+      sendData(res, {
+        storeName: data.storeName,
+        tagline: data.tagline,
+        logoUrl: data.logoUrl,
+        contactPhone: data.contactPhone,
+        contactEmail: data.contactEmail,
+        address: data.address,
+        currency: data.currency,
+        standardShippingFee: data.shippingFee ?? config.DEFAULT_SHIPPING_FEE,
+        freeShippingThreshold: data.freeShippingThreshold,
+        returnPolicy: data.returnPolicy,
+        deliveryPolicy: data.deliveryPolicy,
+        aboutText: data.aboutText,
+      });
+    } catch (error) { next(error); }
+  });
+
+  api.get("/banners", async (_req, res, next) => {
+    try {
+      const snapshot = await db.collection("banners")
+        .where("isActive", "==", true)
+        .orderBy("displayOrder")
+        .limit(20)
+        .get();
+      sendData(res, snapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          title: data.title,
+          subtitle: data.subtitle,
+          badgeText: data.badgeText,
+          imageUrl: data.imageUrl,
+          linkUrl: data.linkUrl,
+          ctaText: data.ctaText,
+          isActive: data.isActive,
+          displayOrder: data.displayOrder,
+        };
+      }));
+    } catch (error) { next(error); }
+  });
+
+  api.post("/coupons/validate", async (req, res, next) => {
+    try {
+      const input = requireInput(z.object({
+        code: z.string().trim().min(1).max(80),
+        subtotal: z.number().finite().nonnegative(),
+      }).strict(), req.body);
+      const coupon = await db.collection("coupons").doc(input.code.toUpperCase()).get();
+      const data = coupon.data();
+      const now = Date.now();
+      const starts = asMillis(data?.startsAt);
+      const ends = asMillis(data?.endsAt);
+      if (!coupon.exists || !data?.isActive ||
+          (data.startsAt != null && starts === null) || (data.endsAt != null && ends === null) ||
+          (starts !== null && starts > now) || (ends !== null && ends < now) ||
+          input.subtotal < Number(data.minimumSubtotal ?? 0) ||
+          (data.usageLimit != null && Number(data.usageCount ?? 0) >= Number(data.usageLimit))) {
+        throw new HttpError(400, "INVALID_COUPON", "The coupon is not valid.");
+      }
+      const discountValue = Number(data.discountValue);
+      if (!Number.isFinite(discountValue) || discountValue <= 0 ||
+          (data.discountType !== "percent" && data.discountType !== "amount") ||
+          (data.discountType === "percent" && discountValue > 100)) {
+        throw new HttpError(400, "INVALID_COUPON", "The coupon is not valid.");
+      }
+      let amountSaved = data.discountType === "percent"
+        ? input.subtotal * discountValue / 100
+        : discountValue;
+      if (data.maxDiscount != null) amountSaved = Math.min(amountSaved, Number(data.maxDiscount));
+      amountSaved = Math.min(input.subtotal, Math.max(0, amountSaved));
+      sendData(res, {
+        valid: true,
+        coupon: {
+          code: coupon.id,
+          discountType: data.discountType === "percent" ? "percentage" : "fixed",
+          discountValue,
+          amountSaved,
+        },
+      });
     } catch (error) { next(error); }
   });
   api.post("/categories", ...adminOnly, async (req, res, next) => {
@@ -692,7 +783,15 @@ export function createApp({ config, db, auth, logger }: Dependencies) {
   api.post("/orders/:id/track", async (req, res, next) => {
     try {
       const body = requireInput(trackingSchema, req.body);
-      const doc = await db.collection("orders").doc(routeId(req)).get();
+      const suppliedId = routeId(req);
+      let doc = await db.collection("orders").doc(suppliedId).get();
+      if (!doc.exists) {
+        const matchingOrder = await db.collection("orders")
+          .where("orderNumber", "==", suppliedId)
+          .limit(1)
+          .get();
+        doc = matchingOrder.docs[0] ?? doc;
+      }
       const stored = doc.get("customer.phoneDigest");
       if (!doc.exists || typeof stored !== "string" || !sameDigest(stored, phoneDigest(body.phone, config.ORDER_TRACKING_HMAC_SECRET))) {
         throw new HttpError(404, "ORDER_NOT_FOUND", "Order could not be found.");
@@ -708,9 +807,9 @@ export function createApp({ config, db, auth, logger }: Dependencies) {
   });
   api.patch("/orders/:id/status", ...adminOnly, async (req, res, next) => {
     try {
-      const { status } = requireInput(orderStatusSchema, req.body);
+      const { status, ...details } = requireInput(orderStatusSchema, req.body);
       const ref = db.collection("orders").doc(routeId(req));
-      const result = await db.runTransaction(async (transaction) => {
+      await db.runTransaction(async (transaction) => {
         const order = await transaction.get(ref);
         if (!order.exists) throw new HttpError(404, "NOT_FOUND", "Order not found.");
         const previous = String(order.get("status"));
@@ -734,11 +833,14 @@ export function createApp({ config, db, auth, logger }: Dependencies) {
         transaction.update(ref, {
           status, updatedAt: now,
           statusHistory: [...(order.get("statusHistory") as unknown[] ?? []), { status, at: now }],
+          ...details,
           ...(status === "cancelled" ? { inventoryRestored: true } : {}),
         });
         return { id: ref.id, status };
       });
-      sendData(res, result);
+      const updated = await ref.get();
+      const { phoneDigest: _digest, ...customer } = updated.get("customer") as Record<string, unknown>;
+      sendData(res, { id: updated.id, ...updated.data(), customer });
     } catch (error) { next(error); }
   });
 

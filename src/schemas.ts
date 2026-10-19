@@ -49,6 +49,8 @@ export const orderInputSchema = z.object({
     phone: z.string().trim().min(7).max(30),
     address: z.string().trim().min(5).max(1000),
     city: z.string().trim().min(1).max(120),
+    area: z.string().trim().max(120).optional(),
+    notes: z.string().trim().max(1000).optional(),
   }).strict(),
   items: z.array(z.object({
     productId: z.string().min(1).max(128),
@@ -65,6 +67,10 @@ export const customerProfilePatchSchema = z.object({
 
 export const orderStatusSchema = z.object({
   status: z.enum(["confirmed", "processing", "packed", "shipped", "out_for_delivery", "delivered", "cancelled", "returned"]),
+  trackingNumber: z.string().trim().max(120).optional(),
+  courierName: z.string().trim().max(120).optional(),
+  cancelReason: z.string().trim().max(1000).optional(),
+  internalNotes: z.string().trim().max(2000).optional(),
 }).strict();
 export const productStatusSchema = z.object({ isActive: z.boolean() }).strict();
 export const trackingSchema = z.object({ phone: z.string().trim().min(7).max(30) }).strict();

@@ -21,7 +21,7 @@ Set the required variables in `.env` or in the hosting platform:
 | `NODE_ENV` | No | `development`, `test`, or `production` |
 | `PORT` | No | HTTP listen port  |
 | `LOG_LEVEL` 
-| `CORS_ORIGINS` | Yes | Comma-separated exact browser origins; no wildcard is accepted as a configuration default |
+| `CORS_ORIGINS` | No | Additional comma-separated exact browser origins. The Netlify storefront and common localhost development ports are already allowed; no wildcard is used. |
 | `TRUST_PROXY` | No | Reverse-proxy hops to trust for client IP/HTTPS detection (default `1`; set `false` if exposed directly) |
 | `FIREBASE_PROJECT_ID` | Yes | Public Firebase project ID used by the backend |
 | `FIREBASE_SERVICE_ACCOUNT` | One credential source | Entire service-account JSON stored as a hosting secret; use Application Default Credentials only on hosts that provide workload identity |
@@ -81,14 +81,16 @@ Add these variables in the Back4App container's Environment Variables settings b
 | --- | --- |
 | `NODE_ENV` | `production` |
 | `PORT` | `8080` (unless Back4App specifies a different container port) |
-| `CORS_ORIGINS` | Exact public storefront origin, such as `https://shop.example.com`; comma-separated if there is more than one |
+| `CORS_ORIGINS` | Optional extra exact origins. `https://ahsanapp.netlify.app` is included by default; add any custom storefront or preview domains here. |
 | `FIREBASE_PROJECT_ID` | Firebase project ID |
 | `FIREBASE_SERVICE_ACCOUNT` | Complete Firebase service-account JSON as a protected variable; do not upload it into the image or commit it |
 | `ORDER_TRACKING_HMAC_SECRET` | Random secret of at least 32 characters |
 
 Generate an HMAC secret locally with `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"` and paste its output into Back4App. `ADMIN_UIDS` and Cloudinary settings are only needed when using those features. Keep the Firebase service account and HMAC secret out of build arguments and source control.
 
-After deployment, check `https://<your-container-domain>/health/live`. A process-start error naming `CORS_ORIGINS`, `FIREBASE_PROJECT_ID`, or `ORDER_TRACKING_HMAC_SECRET` means the corresponding Back4App environment variable is missing or empty. `/health/ready` additionally requires Firestore connectivity.
+After deployment, check `https://<your-container-domain>/health/live`. A process-start error naming `FIREBASE_PROJECT_ID` or `ORDER_TRACKING_HMAC_SECRET` means the corresponding Back4App environment variable is missing or empty. `/health/ready` additionally requires Firestore connectivity.
+
+For this storefront, the backend listens on the platform-provided `PORT` (Back4App normally uses `8080`); `PORT` is the backend container port, not a browser URL. The frontend is served separately by Netlify and uses `https://clientbackend2-qu4dpdu9.b4a.run` as its API origin. The backend's default CORS allowlist includes that storefront and local frontend origins on ports 3000, 5173, and 8080. Set `CORS_ORIGINS` only to add more exact origins, comma-separated and without trailing slashes.
 
 ## Vercel
 
@@ -105,7 +107,8 @@ The versioned API prefix is `/api/v1`. Success responses are `{ "success": true,
 ### Implemented routes
 
 - `GET /health/live`, `GET /health/ready`
-- Customer accounts: `POST /api/v1/auth/sync`, `GET /api/v1/auth/me`, `PATCH /api/v1/auth/me`
+- Public store data: `GET /api/v1/settings`, `GET /api/v1/banners`, `POST /api/v1/coupons/validate`
+- Customer accounts: `POST /api/v1/auth/sync`, `GET /api/v1/auth/me`, `PATCH /api/v1/auth/me`; admin identity: `GET /api/v1/auth/admin/me`
 - Products: `GET /api/v1/products`, `GET /api/v1/products/:id`, `POST /api/v1/products`, `PATCH /api/v1/products/:id`, `DELETE /api/v1/products/:id` (archives), `PATCH /api/v1/products/:id/status`
 - Categories: `GET /api/v1/categories`, `GET /api/v1/categories/:id`, `POST /api/v1/categories`, `PATCH /api/v1/categories/:id`, `DELETE /api/v1/categories/:id`
 - Images: `POST /api/v1/uploads/signature`, `DELETE /api/v1/uploads`

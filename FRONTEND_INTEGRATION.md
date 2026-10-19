@@ -1,22 +1,20 @@
 # Frontend integration
 
-> **Which API am I talking to?**
-> The app in `../client_frontend` runs with its own bundled Express server
-> (`client_frontend/server.ts`) on port 3000, which serves the storefront and a
-> `/api` + `/api/v1` API from the same origin. This document describes the
-> optional standalone Firebase API in this directory. A frontend can be pointed
-> at it with `VITE_API_BASE_URL`, but note that this API has no
-> `POST /api/admin/login` (administrator access is derived from a Firebase ID
-> token plus the `ADMIN_UIDS` allowlist) and no banner/coupon-admin/settings
-> management endpoints.
+> **Production integration**
+> The Netlify storefront at `https://ahsanapp.netlify.app` calls this API at
+> `https://clientbackend2-qu4dpdu9.b4a.run`. The backend allows that origin and
+> common local development origins. Administrator access uses Firebase ID
+> tokens and the server-side `ADMIN_UIDS` allowlist; local username/password
+> admin sessions and admin management for banners, coupons, settings, and audit
+> logs are not supported by this backend.
 
 Keep the API host in one configurable frontend variable. For a Vite frontend, use a local `.env` and the deployment platform's equivalent setting:
 
 ```env
-VITE_API_BASE_URL=https://your-deployed-api.example.com/api/v1
+VITE_API_BASE_URL=https://clientbackend2-qu4dpdu9.b4a.run
 ```
 
-The value above is a placeholder. For local use, configure the backend URL with `/api/v1` included. The frontend contains no Firebase Admin credentials, Cloudinary API secret, or order-tracking HMAC secret. A trailing `/api/v1` is normalized by the storefront client, so both the bare origin and the versioned form work.
+The backend base URL is an origin; the frontend adds `/api/v1` to API calls. A trailing `/api/v1` is also normalized if supplied. The frontend contains no Firebase Admin credentials, Cloudinary API secret, or order-tracking HMAC secret.
 
 ## Public catalog and errors
 
@@ -156,4 +154,4 @@ Tracking intentionally returns status information only, not the address, phone, 
 
 ## Local development
 
-Run the backend using `npm run dev`, configure the frontend's local `VITE_API_BASE_URL`, and set the backend's `CORS_ORIGINS` to the exact local frontend origin (for example `http://localhost:5173`). For production, configure the exact HTTPS frontend origin in the backend hosting environment and set the API base URL in the frontend's deployment environment.
+Run the backend using `npm run dev` (default API port 8080), and set local frontend `VITE_API_BASE_URL` to `http://localhost:8080` if it is not already inherited from the production default. The backend allows localhost ports 3000, 5173, and 8080 by default. For production, keep Netlify's `VITE_API_BASE_URL` set to `https://clientbackend2-qu4dpdu9.b4a.run`; add any custom frontend domains to backend `CORS_ORIGINS` as exact origins, comma-separated. Never include a path or trailing slash in an origin.
