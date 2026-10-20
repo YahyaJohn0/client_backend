@@ -1,10 +1,12 @@
 import { randomBytes, createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { Readable } from "node:stream";
 import express, { type NextFunction, type Request, type Response } from "express";
 import rateLimit from "express-rate-limit";
 import { v2 as cloudinary } from "cloudinary";
 import type { Auth, DecodedIdToken } from "firebase-admin/auth";
+import type { Database } from "firebase-admin/database";
 import type { DocumentSnapshot, Firestore, Query } from "firebase-admin/firestore";
 import helmet from "helmet";
 import type { Logger } from "pino";
@@ -14,17 +16,19 @@ import { HttpError } from "./errors.js";
 import { initializeFirebase } from "./firebase.js";
 import { createLogger } from "./logger.js";
 import { createCorsMiddleware } from "./cors.js";
+import { createDemoProductRecord, normalizeDemoProduct } from "./demoProducts.js";
 import { categoryInputSchema, categoryPatchSchema, customerProfilePatchSchema, orderInputSchema, orderStatusSchema, productInputSchema, productPatchSchema, productStatusSchema, publicIdSchema, trackingSchema } from "./schemas.js";
 
 type Dependencies = {
   config: Config;
   db: Firestore;
+  realtimeDb: Database;
   auth: Pick<Auth, "verifyIdToken">;
   logger: Logger;
 };
 
 type AuthedRequest = Request & { user?: DecodedIdToken; requestId?: string };
-type Product = {
+export type Product = {
   id: string;
   name: string;
   sku: string;
@@ -148,7 +152,7 @@ function routeId(req: Request): string {
   return id;
 }
 
-export function createApp({ config, db, auth, logger }: Dependencies) {
+export function createApp({ config, db, realtimeDb, auth, logger }: Dependencies) {
   const app = express();
   const admins = parseAdminUids(config.ADMIN_UIDS);
 
@@ -321,6 +325,157 @@ export function createApp({ config, db, auth, logger }: Dependencies) {
 
   const adminOnly = [authenticated, administrator];
   const api = express.Router();
+  const demoProductsRef = realtimeDb.ref("demoProducts");
+
+  function requireDemoProductImages(
+    images: Array<{ url: string; publicId: string }>,
+    existingPublicIds = new Set<string>(),
+  ) {
+    for (const image of images) {
+      let imageUrl: URL;
+      try {
+        imageUrl = new URL(image.url);
+      } catch {
+        throw new HttpError(400, "INVALID_IMAGE", "Product images must be uploaded to Cloudinary first.");
+      }
+      if (imageUrl.protocol !== "https:" || imageUrl.hostname !== "res.cloudinary.com" ||
+          (!existingPublicIds.has(image.publicId) &&
+            !image.publicId.startsWith(`${config.CLOUDINARY_ASSET_FOLDER}/`))) {
+        throw new HttpError(400, "INVALID_IMAGE", "Product images must use the configured Cloudinary folder.");
+      }
+    }
+  }
+
+  api.get("/demo-products", ...adminOnly, async (req, res, next) => {
+    try {
+      const params = requireInput(productQuerySchema, req.query);
+      const snapshot = await demoProductsRef.get();
+      const stored = snapshot.val() as Record<string, Record<string, unknown>> | null;
+      let products = Object.entries(stored ?? {})
+        .filter(([, value]) => value && typeof value === "object")
+        .map(([id, value]) => normalizeDemoProduct(id, value));
+
+      if (!params.includeInactive) products = products.filter((product) => product.isActive);
+      if (params.categoryId) products = products.filter((product) => product.categoryId === params.categoryId);
+      if (params.minPrice !== undefined) products = products.filter((product) => product.price >= params.minPrice!);
+      if (params.maxPrice !== undefined) products = products.filter((product) => product.price <= params.maxPrice!);
+      if (params.stock === "in_stock") products = products.filter((product) => product.stock > 0);
+      if (params.stock === "out_of_stock") products = products.filter((product) => product.stock === 0);
+      if (params.search) {
+        const search = params.search.toLocaleLowerCase();
+        products = products.filter((product) => product.name.toLocaleLowerCase().includes(search));
+      }
+      for (const flag of ["isFeatured", "isBestSeller", "isTrending", "isNewArrival"] as const) {
+        const requested = req.query[flag];
+        if (requested === "true" || requested === "false") {
+          products = products.filter((product) => product[flag] === (requested === "true"));
+        }
+      }
+
+      const direction = params.order === "asc" ? 1 : -1;
+      products.sort((left, right) => {
+        const leftValue = left[params.sort];
+        const rightValue = right[params.sort];
+        const comparison = typeof leftValue === "number" && typeof rightValue === "number"
+          ? leftValue - rightValue
+          : String(leftValue ?? "").localeCompare(String(rightValue ?? ""));
+        return comparison === 0 ? left.id.localeCompare(right.id) : comparison * direction;
+      });
+      const startIndex = params.cursor ? products.findIndex((product) => product.id === params.cursor) + 1 : 0;
+      if (params.cursor && startIndex === 0) {
+        throw new HttpError(400, "INVALID_CURSOR", "The pagination cursor is invalid.");
+      }
+      const page = products.slice(startIndex, startIndex + params.limit);
+      const hasMore = startIndex + params.limit < products.length;
+      sendData(res, page, {
+        limit: params.limit,
+        nextCursor: hasMore ? page.at(-1)?.id ?? null : null,
+      });
+    } catch (error) { next(error); }
+  });
+  api.get("/demo-products/:id", ...adminOnly, async (req, res, next) => {
+    try {
+      const snapshot = await demoProductsRef.child(routeId(req)).get();
+      if (!snapshot.exists()) throw new HttpError(404, "NOT_FOUND", "Demo product not found.");
+      sendData(res, normalizeDemoProduct(snapshot.key!, snapshot.val() as Record<string, unknown>));
+    } catch (error) { next(error); }
+  });
+  api.post("/demo-products", ...adminOnly, async (req: AuthedRequest, res, next) => {
+    try {
+      const input = requireInput(productInputSchema, req.body);
+      requireDemoProductImages(input.images);
+      const productRef = demoProductsRef.push();
+      const id = productRef.key;
+      if (!id) throw new HttpError(503, "PRODUCT_ID_FAILED", "A product ID could not be generated.");
+      const now = new Date().toISOString();
+      const record = createDemoProductRecord(id, input, null, now, req.user!.uid);
+      await productRef.set(record);
+      const saved = await productRef.get();
+      if (!saved.exists()) throw new HttpError(503, "PRODUCT_WRITE_FAILED", "The product could not be verified after saving.");
+      sendData(res, normalizeDemoProduct(id, saved.val() as Record<string, unknown>), undefined, 201);
+    } catch (error) { next(error); }
+  });
+  api.patch("/demo-products/:id", ...adminOnly, async (req: AuthedRequest, res, next) => {
+    try {
+      const input = requireInput(productPatchSchema, req.body);
+      if (Object.keys(input).length === 0) {
+        throw new HttpError(400, "VALIDATION_ERROR", "Provide at least one product field.");
+      }
+      const productRef = demoProductsRef.child(routeId(req));
+      const existingSnapshot = await productRef.get();
+      if (!existingSnapshot.exists()) throw new HttpError(404, "NOT_FOUND", "Demo product not found.");
+      const existing = existingSnapshot.val() as Record<string, unknown>;
+      if (input.images) {
+        const existingPublicIds = new Set(
+          (Array.isArray(existing.imageMetadata) ? existing.imageMetadata : [])
+            .flatMap((image) => image && typeof image === "object" && "publicId" in image &&
+              typeof image.publicId === "string" ? [image.publicId] : []),
+        );
+        requireDemoProductImages(input.images, existingPublicIds);
+      }
+      const result = await productRef.transaction((current) => {
+        if (!current || typeof current !== "object") return;
+        return createDemoProductRecord(productRef.key!, input, current, new Date().toISOString(), req.user!.uid);
+      }, undefined, false);
+      if (!result.committed || !result.snapshot.exists()) {
+        throw new HttpError(404, "NOT_FOUND", "Demo product not found.");
+      }
+      sendData(res, normalizeDemoProduct(result.snapshot.key!, result.snapshot.val() as Record<string, unknown>));
+    } catch (error) { next(error); }
+  });
+  api.delete("/demo-products/:id", ...adminOnly, async (req, res, next) => {
+    try {
+      const productRef = demoProductsRef.child(routeId(req));
+      const result = await productRef.transaction((current) => {
+        if (!current || typeof current !== "object") return;
+        return {
+          ...current,
+          isActive: false,
+          archivedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+      }, undefined, false);
+      if (!result.committed || !result.snapshot.exists()) {
+        throw new HttpError(404, "NOT_FOUND", "Demo product not found.");
+      }
+      sendData(res, { id: result.snapshot.key, archived: true });
+    } catch (error) { next(error); }
+  });
+  api.patch("/demo-products/:id/status", ...adminOnly, async (req, res, next) => {
+    try {
+      const body = requireInput(productStatusSchema, req.body);
+      const productRef = demoProductsRef.child(routeId(req));
+      const now = new Date().toISOString();
+      const result = await productRef.transaction((current) => {
+        if (!current || typeof current !== "object") return;
+        return { ...current, isActive: body.isActive, archivedAt: body.isActive ? null : now, updatedAt: now };
+      }, undefined, false);
+      if (!result.committed || !result.snapshot.exists()) {
+        throw new HttpError(404, "NOT_FOUND", "Demo product not found.");
+      }
+      sendData(res, normalizeDemoProduct(result.snapshot.key!, result.snapshot.val() as Record<string, unknown>));
+    } catch (error) { next(error); }
+  });
 
   api.post("/auth/sync", accountRateLimit, authenticated, async (req: AuthedRequest, res, next) => {
     try {
@@ -844,27 +999,67 @@ export function createApp({ config, db, auth, logger }: Dependencies) {
     } catch (error) { next(error); }
   });
 
-  api.post("/uploads/signature", ...adminOnly, (_req, res, next) => {
-    try {
-      requireCloudinary(config);
-      const timestamp = Math.floor(Date.now() / 1000);
-      const params = { timestamp, folder: config.CLOUDINARY_ASSET_FOLDER, allowed_formats: "jpg,jpeg,png,webp,avif" };
-      if (!config.CLOUDINARY_UPLOAD_PRESET) throw new HttpError(503, "UPLOADS_NOT_CONFIGURED", "Image uploads are not configured.");
-      const signedParams = { ...params, upload_preset: config.CLOUDINARY_UPLOAD_PRESET };
-      const signature = cloudinary.utils.api_sign_request(signedParams, config.CLOUDINARY_API_SECRET!);
-      sendData(res, {
-        cloudName: config.CLOUDINARY_CLOUD_NAME,
-        apiKey: config.CLOUDINARY_API_KEY,
-        timestamp,
-        folder: config.CLOUDINARY_ASSET_FOLDER,
-        uploadPreset: config.CLOUDINARY_UPLOAD_PRESET,
-        allowedFormats: ["jpg", "jpeg", "png", "webp", "avif"],
-        maxBytes: config.MAX_UPLOAD_BYTES,
-        signature,
-        uploadUrl: `https://api.cloudinary.com/v1_1/${config.CLOUDINARY_CLOUD_NAME}/image/upload`,
-      });
-    } catch (error) { next(error); }
-  });
+  api.post(
+    "/uploads/product-image",
+    ...adminOnly,
+    express.raw({
+      type: ["image/jpeg", "image/png", "image/webp", "image/avif"],
+      limit: config.MAX_UPLOAD_BYTES,
+    }),
+    async (req, res, next) => {
+      try {
+        requireCloudinary(config);
+        if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+          throw new HttpError(400, "INVALID_IMAGE", "Upload a non-empty JPEG, PNG, WEBP, or AVIF image.");
+        }
+
+        const uploaded = await new Promise<{
+          secure_url: string;
+          public_id: string;
+          format?: string;
+          width?: number;
+          height?: number;
+          bytes?: number;
+        }>((resolve, reject) => {
+          const uploadStream = cloudinary.uploader.upload_stream(
+            {
+              folder: config.CLOUDINARY_ASSET_FOLDER,
+              upload_preset: config.CLOUDINARY_UPLOAD_PRESET,
+              allowed_formats: ["jpg", "jpeg", "png", "webp", "avif"],
+              resource_type: "image",
+            },
+            (error, result) => {
+              if (error) return reject(error);
+              if (!result) return reject(new Error("Cloudinary returned no upload result."));
+              resolve(result);
+            },
+          );
+          Readable.from([req.body as Buffer]).pipe(uploadStream).on("error", reject);
+        });
+
+        if (typeof uploaded.secure_url !== "string" || typeof uploaded.public_id !== "string") {
+          throw new HttpError(502, "INVALID_UPLOAD_RESPONSE", "Cloudinary returned incomplete product image details.");
+        }
+        const secureUrl = new URL(uploaded.secure_url);
+        if (secureUrl.protocol !== "https:" || secureUrl.hostname !== "res.cloudinary.com" ||
+            !uploaded.public_id.startsWith(`${config.CLOUDINARY_ASSET_FOLDER}/`) ||
+            uploaded.public_id.includes("//")) {
+          throw new HttpError(502, "INVALID_UPLOAD_RESPONSE", "Cloudinary returned an invalid product image URL.");
+        }
+        sendData(res, {
+          url: uploaded.secure_url,
+          secureUrl: uploaded.secure_url,
+          publicId: uploaded.public_id,
+          format: uploaded.format,
+          width: uploaded.width,
+          height: uploaded.height,
+          bytes: uploaded.bytes,
+        }, undefined, 201);
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
   api.delete("/uploads", ...adminOnly, async (req, res, next) => {
     try {
       requireCloudinary(config);
@@ -874,7 +1069,16 @@ export function createApp({ config, db, auth, logger }: Dependencies) {
       }
       const products = await db.collection("products").get();
       const inUse = products.docs.some((doc) => (doc.get("images") as Array<{ publicId?: string }> | undefined ?? []).some((image) => image.publicId === body.publicId));
-      if (inUse) throw new HttpError(409, "ASSET_IN_USE", "This image is still referenced by a product.");
+      const demoProducts = await demoProductsRef.get();
+      const demoProductsInUse = Object.values(
+        (demoProducts.val() as Record<string, Record<string, unknown>> | null) ?? {},
+      ).some((product) =>
+        Array.isArray(product.imageMetadata) &&
+        product.imageMetadata.some((image) =>
+          image && typeof image === "object" && "publicId" in image && image.publicId === body.publicId,
+        ),
+      );
+      if (inUse || demoProductsInUse) throw new HttpError(409, "ASSET_IN_USE", "This image is still referenced by a product.");
       const result = await cloudinary.uploader.destroy(body.publicId, { resource_type: "image", invalidate: true });
       if (result.result !== "ok" && result.result !== "not found") throw new HttpError(502, "ASSET_DELETE_FAILED", "Cloudinary could not delete the image.");
       sendData(res, { publicId: body.publicId, deleted: result.result === "ok" });
@@ -895,12 +1099,18 @@ export function createApp({ config, db, auth, logger }: Dependencies) {
     const httpError = error instanceof HttpError ? error : undefined;
     if (!httpError) logger.error({ requestId: req.requestId, error }, "request failed");
     const malformedJson = error instanceof SyntaxError && "body" in error;
-    const status = httpError?.status ?? (malformedJson ? 400 : 500);
+    const requestError = error && typeof error === "object" ? error as { status?: unknown; type?: unknown } : null;
+    const oversizedImage = requestError?.status === 413 && requestError.type === "entity.too.large";
+    const status = httpError?.status ?? (malformedJson ? 400 : oversizedImage ? 413 : 500);
     res.status(status).json({
       success: false,
       error: {
-        code: httpError?.code ?? (malformedJson ? "INVALID_JSON" : "INTERNAL_ERROR"),
-        message: httpError?.message ?? (malformedJson ? "The request body is not valid JSON." : "An unexpected error occurred."),
+        code: httpError?.code ?? (malformedJson ? "INVALID_JSON" : oversizedImage ? "UPLOAD_TOO_LARGE" : "INTERNAL_ERROR"),
+        message: httpError?.message ?? (
+          malformedJson ? "The request body is not valid JSON." :
+            oversizedImage ? "The image exceeds the configured upload size limit." :
+              "An unexpected error occurred."
+        ),
         ...(httpError?.details === undefined ? {} : { details: httpError.details }),
       },
       requestId: req.requestId ?? "unknown",
@@ -930,5 +1140,5 @@ process.on("unhandledRejection", (reason) => {
   );
 });
 
-const { db, auth } = initializeFirebase(config);
-export const app = createApp({ config, db, auth, logger });
+const { db, realtimeDb, auth } = initializeFirebase(config);
+export const app = createApp({ config, db, realtimeDb, auth, logger });

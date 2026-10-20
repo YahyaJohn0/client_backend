@@ -21,17 +21,18 @@ Set the required variables in `.env` or in the hosting platform:
 | `NODE_ENV` | No | `development`, `test`, or `production` |
 | `PORT` | No | HTTP listen port  |
 | `LOG_LEVEL` 
-| `CORS_ORIGINS` | No | Additional comma-separated exact browser origins. The Netlify storefront and common localhost development ports are already allowed; no wildcard is used. |
+| `CORS_ORIGINS` | No | Additional comma-separated browser origins. Wildcard CORS is enabled by default for this API; set an explicit allowlist in code if the deployment should restrict browser origins. |
 | `TRUST_PROXY` | No | Reverse-proxy hops to trust for client IP/HTTPS detection (default `1`; set `false` if exposed directly) |
 | `FIREBASE_PROJECT_ID` | Yes | Public Firebase project ID used by the backend |
+| `FIREBASE_DATABASE_URL` | Yes | Firebase Realtime Database URL for admin demo products |
 | `FIREBASE_SERVICE_ACCOUNT` | One credential source | Entire service-account JSON stored as a hosting secret; use Application Default Credentials only on hosts that provide workload identity |
 | `ADMIN_UIDS` | No | Comma-separated Firebase Auth UIDs assigned administrator access by the trusted operator |
 | `CLOUDINARY_URL` | For uploads | Private server-side Cloudinary credential URL; never put it in browser config or documentation |
 | `CLOUDINARY_CLOUD_NAME` | For uploads | Public Cloudinary cloud name |
 | `CLOUDINARY_API_KEY` | For uploads | Cloudinary API key; otherwise read from `CLOUDINARY_URL` |
 | `CLOUDINARY_API_SECRET` | For uploads | Cloudinary API secret; otherwise read from `CLOUDINARY_URL`; server-side only |
-| `CLOUDINARY_UPLOAD_PRESET` | For signed uploads | Public preset identifier; uploads are signed server-side with `CLOUDINARY_API_SECRET` |
-| `CLOUDINARY_ASSET_FOLDER` | No | Restricts product assets (default `zamzam/products`) |
+| `CLOUDINARY_UPLOAD_PRESET` | For uploads | Preset identifier (default `zamzam`); Cloudinary API credentials stay on the backend |
+| `CLOUDINARY_ASSET_FOLDER` | No | Restricts product assets (default `samples/ecommerce`) |
 | `MAX_UPLOAD_BYTES` | No | Maximum upload size returned to clients (default 5 MiB; configure the Cloudinary signed-upload preset to enforce it) |
 | `COD_ENABLED` | No | Enable guest Cash on Delivery checkout (default `true`) |
 | `DEFAULT_SHIPPING_FEE` | No | Fallback shipping fee when no store setting is present |
@@ -41,7 +42,7 @@ For local development, keep settings in an ignored `.env` file. Add Firebase Adm
 
 Firebase credentials must never be put in frontend variables or committed. The server uses `FIREBASE_SERVICE_ACCOUNT` when set; otherwise it uses Application Default Credentials.
 
-The backend loads a local `.env` file at startup when present. It deliberately does not read `VITE_*` variables: those belong to browser builds and must not be used for server credentials. The Firebase project ID is public, but Firebase Admin still needs a service account or Application Default Credentials with Firestore access. Keep `CLOUDINARY_URL` and all private Cloudinary credentials in the backend environment only.
+The backend loads a local `.env` file at startup when present. It deliberately does not read `VITE_*` variables: those belong to browser builds and must not be used for server credentials. The Firebase project ID and Realtime Database URL are public configuration, but Firebase Admin still needs a service account or Application Default Credentials with Firebase access. Keep `CLOUDINARY_URL` and all private Cloudinary credentials in the backend environment only.
 
 ## Run and verify
 
@@ -90,7 +91,7 @@ Generate an HMAC secret locally with `node -e "console.log(require('node:crypto'
 
 After deployment, check `https://<your-container-domain>/health/live`. A process-start error naming `FIREBASE_PROJECT_ID` or `ORDER_TRACKING_HMAC_SECRET` means the corresponding Back4App environment variable is missing or empty. `/health/ready` additionally requires Firestore connectivity.
 
-For this storefront, the backend listens on the platform-provided `PORT` (Back4App normally uses `8080`); `PORT` is the backend container port, not a browser URL. The frontend is served separately by Netlify and uses `https://clientbackend2-qu4dpdu9.b4a.run` as its API origin. The backend's default CORS allowlist includes that storefront and local frontend origins on ports 3000, 5173, and 8080. Set `CORS_ORIGINS` only to add more exact origins, comma-separated and without trailing slashes.
+For this storefront, the backend listens on the platform-provided `PORT` (Back4App normally uses `8080`); `PORT` is the backend container port, not a browser URL. The frontend is served separately by Netlify and uses `https://clientbackend-taxt7mcy.b4a.run` as its API origin. Wildcard CORS is enabled by default without credentialed cookies; protected API routes must continue to enforce Firebase authorization independently of CORS.
 
 ## Vercel
 
@@ -98,7 +99,7 @@ This repository deploys the Express API as a Vercel Node.js Function. In Vercel,
 
 Add the required variables from the table above in the Vercel project's Settings > Environment Variables for each deployment environment. `FIREBASE_SERVICE_ACCOUNT` must contain the complete service-account JSON; enter it as a protected environment variable and never commit the credential file. Do not set `PORT` on Vercel; the platform manages the function runtime. Deploy after saving the environment variables.
 
-The API routes remain `/api/v1/...`; `/health/live` and `/health/ready` are routed through the function as well. The API does not proxy image bytes: admins request a Cloudinary signature and the browser uploads directly to Cloudinary, avoiding function request-size limits.
+The API routes remain `/api/v1/...`; `/health/live` and `/health/ready` are routed through the function as well. Authenticated admins upload images through `POST /api/v1/uploads/product-image`. The backend validates the image content type and size, streams the bytes to Cloudinary using its server-side credentials, and returns the HTTPS URL and public ID. Cloudinary credentials never reach the browser.
 
 ## API
 
@@ -111,7 +112,8 @@ The versioned API prefix is `/api/v1`. Success responses are `{ "success": true,
 - Customer accounts: `POST /api/v1/auth/sync`, `GET /api/v1/auth/me`, `PATCH /api/v1/auth/me`; admin identity: `GET /api/v1/auth/admin/me`
 - Products: `GET /api/v1/products`, `GET /api/v1/products/:id`, `POST /api/v1/products`, `PATCH /api/v1/products/:id`, `DELETE /api/v1/products/:id` (archives), `PATCH /api/v1/products/:id/status`
 - Categories: `GET /api/v1/categories`, `GET /api/v1/categories/:id`, `POST /api/v1/categories`, `PATCH /api/v1/categories/:id`, `DELETE /api/v1/categories/:id`
-- Images: `POST /api/v1/uploads/signature`, `DELETE /api/v1/uploads`
+- Images: `POST /api/v1/uploads/product-image`, `DELETE /api/v1/uploads`
+- Admin demo products in Realtime Database `/demoProducts`: `GET /api/v1/demo-products`, `GET /api/v1/demo-products/:id`, `POST /api/v1/demo-products`, `PATCH /api/v1/demo-products/:id`, `DELETE /api/v1/demo-products/:id` (archives), `PATCH /api/v1/demo-products/:id/status`
 - Orders: `POST /api/v1/orders` (guest-compatible; optionally authenticated), `GET /api/v1/orders/my`, `GET /api/v1/orders/my/:id`, `POST /api/v1/orders/:id/track`
 - Admin orders: `GET /api/v1/orders`, `GET /api/v1/orders/:id`, `PATCH /api/v1/orders/:id/status`
 
@@ -131,13 +133,13 @@ In Firebase Console, enable Email/Password and Google under Authentication provi
 
 No backend-persisted cart exists. Until a cart API and product/stock synchronization requirements are agreed, the frontend must manage its cart and submit product IDs and quantities at checkout; the backend ignores client prices and revalidates availability and stock transactionally.
 
-Creating a product with `POST /api/v1/products` stores its validated product fields, including each Cloudinary image's `url` and `publicId`, in the Firestore `products` collection. The referenced category must already exist.
+Creating a product in the admin panel stores its validated fields in Firebase Realtime Database at `/demoProducts/{id}`. Image URLs are saved in `images`, `imageMetadata`, and `imageUrl`; product image metadata contains the Cloudinary `secure_url` and public ID. These admin-only demo products are separate from the Firestore `products` collection used for checkout inventory. The referenced category is stored as a category ID but is not copied into Firestore.
 
 Guest tracking requires the order document ID and the matching phone number, returns only order number/status/timestamps/status history, and stores a keyed HMAC rather than a second tracking copy of the phone. Admin order views retain customer delivery details.
 
 Only cancellation automatically restores stock; a return is a fulfillment state and does not automatically restock. This avoids treating an uninspected return as sellable inventory. Product status changes are not a substitute for a stock movement.
 
-Cloudinary upload signatures constrain asset folder, preset, and formats. Configure the Cloudinary signed upload preset to enforce `MAX_UPLOAD_BYTES` in the Cloudinary account: the returned size value is also suitable for client-side preflight but is not a trusted security boundary by itself. The API never returns the Cloudinary secret. Asset deletion is refused while a product references the `publicId`.
+Cloudinary image uploads are performed by the authenticated backend with the configured preset, asset folder, format allowlist, and `MAX_UPLOAD_BYTES` request limit. The API never returns Cloudinary credentials. Product URLs and Cloudinary `publicId` values are written to `/demoProducts` when the admin saves the product. Asset deletion is refused while a product references the `publicId`.
 
 No existing banners, store settings management, coupon administration, exports, reports, audit-log, or manual inventory workflow was present to extend. Coupon use and checkout shipping settings are supported, but those additional admin-management/reporting APIs are not implemented in this standalone baseline.
 

@@ -8,10 +8,10 @@
 > admin sessions and admin management for banners, coupons, settings, and audit
 > logs are not supported by this backend.
 
-Keep the API host in one configurable frontend variable. For a Vite frontend, use a local `.env` and the deployment platform's equivalent setting:
+Keep the API host in one configurable frontend variable. The storefront accepts the unprefixed public variable in local `.env` and the deployment platform's build environment:
 
 ```env
-VITE_API_BASE_URL=https://clientbackend2-qu4dpdu9.b4a.run
+API_BASE_URL=https://clientbackend-taxt7mcy.b4a.run
 ```
 
 The backend base URL is an origin; the frontend adds `/api/v1` to API calls. A trailing `/api/v1` is also normalized if supplied. The frontend contains no Firebase Admin credentials, Cloudinary API secret, or order-tracking HMAC secret.
@@ -19,7 +19,7 @@ The backend base URL is an origin; the frontend adds `/api/v1` to API calls. A t
 ## Public catalog and errors
 
 ```ts
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, "");
+const API_BASE_URL = import.meta.env.API_BASE_URL.replace(/\/+$/, "");
 
 type ApiSuccess<T> = { success: true; data: T; meta?: Record<string, unknown> };
 type ApiFailure = {
@@ -88,22 +88,29 @@ const orders = await api("/orders/my", {
 
 Fetch a single owned order with `GET /orders/my/{orderId}`. An order owned by another customer is returned as `404`. The API currently has no persistent cart; keep cart state in the frontend and submit product IDs and quantities at checkout. The backend reloads prices and stock and calculates totals itself.
 
-## Signed image upload
+## Cloudinary image upload
 
-1. Request `POST /uploads/signature` with the Firebase bearer token.
-2. Upload the file directly to the returned `uploadUrl` using multipart form fields `file`, `api_key`, `timestamp`, `folder`, `allowed_formats`, `upload_preset`, and `signature`.
-3. Check the file size against returned `maxBytes` before sending; Cloudinary must also enforce the same limit in its upload preset.
-4. Save the returned Cloudinary `secure_url` and actual `public_id` as `{ url, publicId }` in a product's `images` array.
-5. Omit `images` from a product patch to preserve all current images. To remove an image from a product, patch its image array explicitly. Delete a Cloudinary asset through `DELETE /uploads` only after it is no longer referenced.
+1. Send the selected image bytes to `POST /uploads/product-image` with its image
+   MIME type and the Firebase administrator bearer token.
+2. The backend checks the administrator identity, accepted content type, and
+   configured size limit, then uses the Cloudinary Node SDK and server-side
+   credentials to stream the image into the configured asset folder.
+3. The API returns `secureUrl` and `publicId`. Keep these values in the product
+   form and submit them with product fields to the protected demo-product
+   endpoint; the admin dashboard writes demo records to Realtime Database
+   `/demoProducts` when the product is saved.
+4. Omit `images` from a product patch to preserve current images. To remove an
+   image from a product, patch the image array explicitly. Delete a Cloudinary
+   asset through `DELETE /uploads` only after it is no longer referenced.
 
-Never send the Cloudinary API secret to the browser.
+Never send Cloudinary credentials to the browser.
 
-## Creating products
+## Saving demo products to Realtime Database
 
-After uploading images, send their Cloudinary URL and `publicId` along with the rest of the product fields to the protected product endpoint. The API validates the category and image folder, then saves the product document in Firestore's `products` collection:
+After uploading images, send each Cloudinary HTTPS URL and `publicId` with the product fields to the protected demo-product endpoint. The admin dashboard uses `/demo-products`; the API stores these demo records at `/demoProducts` in Firebase Realtime Database:
 
 ```ts
-const product = await api("/products", {
+const product = await api("/demo-products", {
   method: "POST",
   headers: { Authorization: `****** },
   body: JSON.stringify({
@@ -115,7 +122,7 @@ const product = await api("/products", {
     price: 25,
     salePrice: null,
     stock: 10,
-    images: [{ url: uploadedImage.secure_url, publicId: uploadedImage.public_id }],
+    images: [{ url: uploadedImage.secureUrl, publicId: uploadedImage.publicId }],
     isFeatured: false,
     isBestSeller: false,
     isTrending: false,
@@ -154,4 +161,8 @@ Tracking intentionally returns status information only, not the address, phone, 
 
 ## Local development
 
-Run the backend using `npm run dev` (default API port 8080), and set local frontend `VITE_API_BASE_URL` to `http://localhost:8080` if it is not already inherited from the production default. The backend allows localhost ports 3000, 5173, and 8080 by default. For production, keep Netlify's `VITE_API_BASE_URL` set to `https://clientbackend2-qu4dpdu9.b4a.run`; add any custom frontend domains to backend `CORS_ORIGINS` as exact origins, comma-separated. Never include a path or trailing slash in an origin.
+Run the backend using `npm run dev` (default API port 8080). Set local frontend
+`API_BASE_URL` to the backend origin if it differs from the default. The backend
+allows localhost ports 3000, 5173, and 8080 by default. Add any custom frontend
+domains to backend `CORS_ORIGINS` as exact origins, comma-separated. Never
+include a path or trailing slash in an origin.

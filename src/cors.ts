@@ -2,6 +2,7 @@ import cors from "cors";
 import { HttpError } from "./errors.js";
 
 const DEFAULT_CORS_ORIGINS = [
+  "*",
   "https://ahsanapp.netlify.app",
   "http://localhost:3000",
   "http://localhost:5173",
@@ -22,7 +23,7 @@ export function createCorsMiddleware(configuredOrigins: string) {
   const allowedOrigins = parseCorsOrigins(configuredOrigins);
   return cors({
     origin(origin, callback) {
-      if (!origin || allowedOrigins.has(origin)) return callback(null, true);
+      if (!origin || allowedOrigins.has("*") || allowedOrigins.has(origin)) return callback(null, true);
       return callback(new HttpError(403, "CORS_ORIGIN_DENIED", "This origin is not allowed."));
     },
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],

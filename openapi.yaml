@@ -240,14 +240,28 @@ paths:
       tags: [Categories]
       security: [{ FirebaseBearer: [] }]
       responses: { "200": { description: Category deleted. }, "409": { $ref: "#/components/responses/Error" }, "401": { $ref: "#/components/responses/Error" }, "403": { $ref: "#/components/responses/Error" } }
-  /api/v1/uploads/signature:
+  /api/v1/uploads/product-image:
     post:
       tags: [Uploads]
       security: [{ FirebaseBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          image/jpeg:
+            schema: { type: string, format: binary }
+          image/png:
+            schema: { type: string, format: binary }
+          image/webp:
+            schema: { type: string, format: binary }
+          image/avif:
+            schema: { type: string, format: binary }
       responses:
-        "200": { description: Short-lived signed Cloudinary upload parameters. }
+        "201": { description: Cloudinary HTTPS URL and public ID for the uploaded image. }
+        "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
+        "413": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
   /api/v1/uploads:
     delete:

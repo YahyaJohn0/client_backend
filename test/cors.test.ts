@@ -11,11 +11,11 @@ describe("API CORS configuration", () => {
     expect(origins.has("http://localhost:8080")).toBe(true);
   });
 
-  it("accepts configured origins and excludes unconfigured origins", () => {
+  it("accepts configured origins and enables wildcard CORS by default", () => {
     const origins = parseCorsOrigins(" https://preview.example.com, ,https://admin.example.com ");
     expect(origins.has("https://preview.example.com")).toBe(true);
     expect(origins.has("https://admin.example.com")).toBe(true);
-    expect(origins.has("https://attacker.example")).toBe(false);
+    expect(origins.has("*")).toBe(true);
   });
 
   it("answers cross-origin preflight for authenticated and idempotent API requests", async () => {
@@ -40,19 +40,17 @@ describe("API CORS configuration", () => {
     expect(allowedHeaders).toContain("idempotency-key");
   });
 
-  it("does not grant CORS access to unlisted origins", async () => {
+  it("allows cross-origin requests without enabling credentialed cookies", async () => {
     const app = express();
     app.use(createCorsMiddleware(""));
     app.get("/health/live", (_req, res) => res.json({ status: "ok" }));
-    app.use((error: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-      res.status(403).json({ error: error.message });
-    });
 
     const response = await request(app)
       .get("/health/live")
       .set("Origin", "https://attacker.example");
 
-    expect(response.status).toBe(403);
-    expect(response.headers["access-control-allow-origin"]).toBeUndefined();
+    expect(response.status).toBe(200);
+    expect(response.headers["access-control-allow-origin"]).toBe("https://attacker.example");
+    expect(response.headers["access-control-allow-credentials"]).toBeUndefined();
   });
 });
